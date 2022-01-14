@@ -1,0 +1,267 @@
+---
+title: "population structure"
+author: "Lea Stauber - Stauber et al. 2022, Mol. Ecol."
+date: "1/11/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+packages <- c("BiocManager", "renv")
+if (!requireNamespace(packages, quietly = TRUE))
+    install.packages(packages)
+
+## to restore R environment from renv.lock file run:
+# renv::restore()
+
+library(adegenet)
+library(ape)
+library(phangorn)
+library(vcfR)
+library(poppr)
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+library(MetBrewer)
+library(poppr)
+library(tidyr)
+library(factoextra)
+
+
+```
+
+### Run DAPC analysis on global data set
+```{r DAPC analysis, message=FALSE, warning=FALSE}
+
+## load vcffile
+popvcf <- read.vcfR("../data/Cp_global.genotyped.SNP.filter.PASS.mac1.biallelic.DP.GQ.AD.removeMAT.recode.vcf")
+genlight_pop <- vcfR2genlight(popvcf)
+
+## load pop info
+info.df <- read.table("../data/popinfo.txt", header = T, sep = "\t") %>% 
+  mutate(pop = gsub("sampling1", "Ticino sampling 1990/1996", pop),
+         pop = gsub("sampling2", "Ticino sampling 2019", pop))
+
+## match pop info with genlight object
+pop(genlight_pop) <- info.df$pop[match(indNames(genlight_pop), info.df$Sample)]
+
+
+## DAPC
+
+## choose correct number of PCs
+set.seed(999)
+cry_PC <- xvalDapc(tab(genlight_pop, NA.method = "mean"), pop(genlight_pop), n.pca.max = 300, training.set = 0.9, scale = F, n.rep = 100, n.pca = NULL)
+
+PCs <- as.numeric(cry_PC[2:6]$`Number of PCs Achieving Lowest MSE`) ## optimal number of PCs = 20
+
+
+## run DAPC and plot
+dapc <- dapc(genlight_pop, var.contrib = TRUE, scale = FALSE, n.pca = PCs, n.da = nPop(genlight_pop) - 1)
+
+myCol <- c("#D7CF07", "#D98324", "#230007", "#A40606")
+
+dir.create("plots")
+
+pdf("plots/Fig2A_DAPC.pdf", useDingbats = F, height = 5, width = 5)
+scatter(dapc, scree.da=T, bg="white", cex=2, clab=0, leg=TRUE, 
+        posi.leg = "bottomleft", col=myCol, posi.da="topright", lwd = 2, lty = 2, pch=20)
+dev.off()
+
+
+rm(pop, dapc, genlight_pop, cry_PC)
+```
+
+### Run DAPC analysis on Ticino data set
+```{r DAPC analysis 2, message=FALSE, warning=FALSE}
+## import Ticino dataset
+ticinovcf <- read.vcfR("../data/Ticino_n142_genotyped.SNP.filter.PASS.mac1.biallelic.DP.GQ.AD.removeMAT.recode.vcf")
+genlight_pop <- vcfR2genlight(ticinovcf)
+
+## add site+year info to info.df
+info.df$siteyear <- ifelse(grepl("1990", info.df$pop), paste(info.df$Region, "1990s", sep =" "),
+                           ifelse(grepl("2019", info.df$pop), paste(info.df$Region, "2019", sep =" "), NA))
+
+## match pop info with genlight object
+pop(genlight_pop) <- info.df$siteyear[match(indNames(genlight_pop), info.df$Sample)]
+
+
+## DAPC
+
+## choose correct number of PCs
+set.seed(999)
+cry_PC <- xvalDapc(tab(genlight_pop, NA.method = "mean"), pop(genlight_pop), n.pca.max = 300, training.set = 0.9, scale = F, n.rep = 100, n.pca = NULL)
+
+PCs <- as.numeric(cry_PC[2:6]$`Number of PCs Achieving Lowest MSE`) ## optimal number of PCs = 110
+
+
+## run DAPC and plot
+dapc <- dapc(genlight_pop, var.contrib = TRUE, scale = FALSE, n.pca = PCs, n.da = nPop(genlight_pop) - 1)
+
+myCol <- met.brewer("Peru1", n = 6)
+
+pdf("plots/Fig2C_DAPC.pdf", useDingbats = F, height = 5, width = 5)
+scatter(dapc, scree.da=T, bg="white", cex=2, clab=0, leg=TRUE, 
+        posi.leg = "bottomright", col=myCol, posi.da="topright", lwd = 2, lty = 2, pch=20)
+dev.off()
+
+
+rm(genlight_pop, dapc, cry_PC)
+```
+
+
+### Run AMOVA to test for spatial and temporal differentiation
+
+Adapted from https://grunwaldlab.github.io/Population_Genetics_in_R/AMOVA.html
+```{r AMOVA data prep, message=FALSE, warning=FALSE, fig.align='center', fig.width=5,fig.height=5}
+
+# convert vcf to genind object
+cry.genind <- vcfR2genind(ticinovcf, ploidy=1)
+
+# match siteyear with genind pop info (=strata, siteyear info has to be sep="_")
+info.df <- info.df %>% 
+  mutate(siteyear = gsub(" ", "_", siteyear)) %>% 
+  na.omit()
+
+pop(cry.genind) <- info.df$siteyear[match(indNames(cry.genind), info.df$Sample)]
+
+# make dataframe from pop(genind) and assign it to strata(genind)
+strata <- data.frame(pop(cry.genind)) 
+strata(cry.genind) <- strata
+
+# transform genind to genclone, split strata
+cryclone <- as.genclone(cry.genind)
+splitStrata(cryclone) <- ~site/year
+cryclone
+
+table(strata(cryclone, ~site/year, combine=F))
+
+```
+
+Amova for differences between years
+```{r AMOVA1, message=FALSE, warning=FALSE, fig.align='center', fig.width=5,fig.height=5}
+mova <- poppr.amova(cryclone, ~year)
+mova
+
+## with clone correction
+movacc <- poppr.amova(cryclone, ~year, clonecorrect = TRUE)
+movacc
+dir.create("output")
+write.table(cbind(movacc$results, movacc$componentsofcovariance), "output/amova_results_samplings.txt", sep = "\t", quote = F)
+
+movacc$statphi
+```
+
+Test for significance
+Note: "within/between samples" refers to "within/between sampling years"!
+no clone correction:
+```{r AMOVA1 stat test, message=FALSE, warning=FALSE, fig.align='center', fig.width=5,fig.height=5}
+set.seed(1999)
+crysignif   <- randtest(mova, nrepet = 999)
+crysignif
+plot(crysignif)
+```
+
+Test for significance with clone correction:
+```{r AMOVA1 stat test CC, message=FALSE, warning=FALSE, fig.align='center', fig.width=5,fig.height=5}
+set.seed(1999)
+crysignifcc <- randtest(movacc, nrepet = 999)
+crysignifcc
+plot(crysignifcc)
+
+expar <- crysignifcc$expvar
+pval <- crysignifcc$pvalue
+
+randtest_results <- data.frame(expar, pval)
+
+write.table(randtest_results, "output/amova_results_samplings_pval.txt", sep = "\t", quote = F, row.names = T)
+## no significant differences between years
+```
+
+
+Repeat AMOVA analysis for testing between sites
+```{r AMOVA2 sites, message=FALSE, warning=FALSE, fig.align='center', fig.width=5,fig.height=5}
+mova <- poppr.amova(cryclone, ~site)
+mova
+
+movacc <- poppr.amova(cryclone, ~site, clonecorrect = TRUE)
+movacc
+
+set.seed(1999)
+crysignif   <- randtest(mova, nrepet = 999)
+crysignif
+set.seed(1999)
+crysignifcc <- randtest(movacc, nrepet = 999)
+crysignifcc
+
+## no significant differences between sites
+```
+
+Repeat AMOVA analysis for testing ~site/year
+```{r AMOVA3 ~site/year, message=FALSE, warning=FALSE, fig.align='center', fig.width=5,fig.height=5}
+mova <- poppr.amova(cryclone, ~site*year)
+mova
+
+movacc <- poppr.amova(cryclone, ~site/year, clonecorrect = TRUE)
+movacc
+
+movacc$statphi
+
+write.table(cbind(movacc$results, movacc$componentsofcovariance), "output/amova_results_sites.samplings.txt", sep = "\t", quote = F, row.names = T)
+
+set.seed(1999)
+crysignif   <- randtest(mova, nrepet = 999)
+crysignif
+set.seed(1999)
+crysignifcc <- randtest(movacc, nrepet = 999)
+crysignifcc
+
+test <- crysignifcc$names
+expar <- crysignifcc$expvar
+pval <- crysignifcc$pvalue
+
+results <- data.frame(test, expar, pval) %>% 
+  write.table("output/amova_results_sites.samplings_pval.txt", sep = "\t", quote = F, row.names = F)
+
+## no significant differences between in ~site/year
+```
+
+
+### Principal component analysis of Ticino populations
+
+```{r PCA, message=FALSE, warning=FALSE}
+
+# Read vcf to genind object
+cry.genind <- vcfR2genind(ticinovcf)
+
+# assign pop with labels
+pop(cry.genind) <- info.df$siteyear[match(indNames(cry.genind), info.df$Sample)]
+
+# PCA analysis
+x.cry.genind <- tab(cry.genind, freq=TRUE, NA.method="mean")
+pca.cry.genind <- dudi.pca(x.cry.genind, center=TRUE, scale=FALSE, nf = 2, scannf = F)
+var <- fviz_eig(pca.cry.genind)  # scree plot (percentage of explained variance)
+
+## get explained variance for PC1 and PC2
+PC1var <- round(max(var$data$eig), digits = 1)
+PC2var <- round(max(var$data$eig[var$data$eig!=max(var$data$eig)]), digits = 1)
+
+
+## plot
+pca.df <- cbind(pca.cry.genind$li, pop(cry.genind)) %>% 
+  separate(`pop(cry.genind)`, c("site","year"), sep ="_")
+
+
+ggplot(pca.df, aes(x=Axis1, y=Axis2, col = year, shape=site)) + 
+  geom_point(size = 3, show.legend = T) +
+  theme_bw() +
+  labs(x=paste("PC1", paste0("(", PC1var, "%)"), sep = " "), y=paste("PC2", paste0("(", PC2var, "%)")), sep=" ") +
+  scale_shape_manual(values = c(5, 0, 6)) +
+  theme(legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  scale_color_manual(values = c("#4856A2", "#CF3C31"))
+
+ggsave("plots/Fig2D_PCA.pdf", useDingbats=F, height = 5, width = 5)
+
+```
+
