@@ -4,4 +4,5 @@
 
 ```02_popstructure```: Analysis of population structure - DAPC, AMOVA and PCA 
 
-```03_diversity_stats```: Make summary statistics (number of SNPs, percent singletons, SNP density, nucleotide diversity), calculate and plot allele frequencies and minor allele frequency (MAF) spectra of high, moderate and modifier impact mutations 
+```03_diversity_stats```: * Make summary statistics (number of SNPs, percent singletons, SNP density, nucleotide diversity)
+* calculate and plot allele frequencies and minor allele frequency (MAF) spectra of high, moderate and modifier impact mutations 
