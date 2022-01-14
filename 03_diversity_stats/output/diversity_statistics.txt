@@ -1,0 +1,4 @@
+pop	n_samples	SNPs	perc_singl	final_genomewide_pi
+Ticino 1990	74	3721	13.22	2.78461042078944e-06
+Ticino 2019	68	6724	39.99	2.49778678127456e-06
+US and Europe	95	8360	24.01	9.68132287687523e-06
