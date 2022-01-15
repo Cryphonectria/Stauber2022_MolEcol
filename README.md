@@ -9,3 +9,6 @@
 ```03_diversity_stats```: 
 * Make summary statistics (number of SNPs, percent singletons, SNP density, nucleotide diversity)
 * calculate and plot allele frequencies and minor allele frequency (MAF) spectra of high, moderate and modifier impact mutations 
+
+```04_IBS_IBD```:
+* Calculating and plotting identity-by-state (IBS) and identity-by-descent (IBD), heatmaps and histograms
