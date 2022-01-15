@@ -35,7 +35,7 @@ def calculate_nuc_diversity():
         #print(Number_of_SNPS)
 
         # fixed attribute for genome size of C. parasitica (derived from Cryphonectria_parasiticav2.fa.fai REfgenome)
-        Genome_size = 44029313
+        Genome_size = 44497486
 
         # divide genome length by number of snps
         Factor_pi = Genome_size / Number_of_SNPS
