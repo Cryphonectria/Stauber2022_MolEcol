@@ -1,0 +1,297 @@
+---
+title: '<center>Ticino populations -- Analyses</center>'
+author: ''
+date: ''
+output:
+  html_document:
+    code_folding: hide
+    pandoc_args: ["--smart"]
+    toc: true
+    toc_float: true
+---
+Packages:
+```{r, message=FALSE, warning=FALSE}
+
+packages <- c("BiocManager", "renv")
+if (!requireNamespace(packages, quietly = TRUE))
+    install.packages(packages)
+
+## to restore R environment from renv.lock file run:
+# renv::restore()
+
+
+library(psych)
+library(ggplot2)
+library(ggsci)
+library(ggdendro)
+library(igraph)
+library(tidyverse)
+library(gplots)
+library(grid)
+library(RColorBrewer)
+library(SNPRelate)
+source("IBS_IBD_functions.R")
+```
+
+### Calculate IBS from the ```SNPRelate``` package
+```{r, message=FALSE, warning=FALSE}
+vcf1 <- "../data/Ticino_sampling1.genotyped.SNP.filter.PASS.mac1.biallelic.DP.GQ.AD.removeMAT.recode.vcf"
+vcf2 <- "../data/Ticino_sampling2.genotyped.SNP.filter.PASS.mac1.biallelic.DP.GQ.AD.removeMAT.recode.vcf"
+
+# calculate IBS
+IBSdat <- lapply(c(vcf1, vcf2), IBS) # # remove gds files, otherwise code won't rerun (because files already exist): showfile.gds(closeall=TRUE, verbose = F)
+# merge list of dfs to dataframe
+IBSdat <- do.call("rbind", IBSdat)
+rm(vcf1, vcf2)
+```
+
+### Calculate IBD with ```hmmIBD``` (https://github.com/glipsnort/hmmIBD)
+```{bash, include = FALSE}
+## run hmmIBD
+## change values in hmmIBD.c:
+# eps = .001
+# nchrom = 13
+# rec_rate= 1.96681e-04
+# min_snp_sep = 5
+
+## --> freqs.txt are the allele frequency tables, calculated with vcftools --freq2
+
+hmmIBD -i Ticino_sampling1.genotypeinfo.txt -f Ticino_sampling1_freqs.txt -o Ticino1
+hmmIBD -i Ticino_sampling2.genotypeinfo.txt -f Ticino_sampling2_freqs.txt -o Ticino2
+
+```
+
+
+### Reformat hmmIBD output for plotting
+```{r, message=FALSE, warning=FALSE}
+## import data
+
+files <- list.files(pattern="*hmm_fract.txt", path = "../data")
+dfnames <- gsub("*.hmm_fract.txt", "", files)
+
+IBDdat <- paste0("../data/", files) %>% 
+  lapply(., read.table, header = T, sep="\t", fill=T) %>% 
+  Map(cbind, ., sampling = dfnames) %>% 
+  do.call(rbind.data.frame, .) %>% 
+  select(c(sample1, sample2, fract_vit_sites_IBD, sampling))
+
+```
+
+### Plot data for sampling 1
+```{r plot IBS/IBD for Ticino 1, message=FALSE, warning=FALSE}
+# transform df to matrices 
+IBS.matrix <- IBSdat %>% 
+  filter(sampling == "Ticino_sampling1") %>% 
+  reshape2::acast(sample1~sample2, value.var="IBS")
+
+IBD.matrix <- IBDdat %>% 
+  filter(sampling == "Ticino1") %>% 
+  rename(IBD = fract_vit_sites_IBD) %>%
+  graph.data.frame(directed = F) %>% 
+  get.adjacency(attr="IBD", sparse = F) 
+
+
+# Run clustering for dendrogram
+IBS.dendro <- as.dendrogram(hclust(d = dist(x = IBS.matrix)))
+# Create dendros
+IBS.dendro.upper.plot <- ggdendrogram(data = IBS.dendro, rotate = F, labels = T) +
+  theme(axis.line=element_blank(),
+      axis.text.x=element_text(size=3),
+      axis.text.y=element_blank(),
+      axis.ticks=element_blank(),
+      axis.title.x =element_blank(),
+      axis.title.y =element_blank(),
+      panel.background=element_blank(),
+      panel.border=element_blank(),
+      panel.grid.major=element_blank(),
+      panel.grid.minor=element_blank(),
+      plot.background=element_blank())
+IBS.dendro.left.plot <- ggdendrogram(data = IBS.dendro, rotate = T, labels = T) +
+  scale_x_reverse() +
+  scale_y_reverse() +
+  theme(axis.line=element_blank(),
+      axis.text.x=element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks=element_blank(),
+      axis.title.x =element_blank(),
+      axis.title.y =element_blank(),
+      panel.background=element_blank(),
+      panel.border=element_blank(),
+      panel.grid.major=element_blank(),
+      panel.grid.minor=element_blank(),
+      plot.background=element_blank())
+# get sample order of IBS dendrogram
+IBS.order <- order.dendrogram(IBS.dendro)
+# reorder IBS and IBD matrices according to IBS dendrogram order
+IBS.matrix <- IBS.matrix[IBS.order,IBS.order]
+IBD.matrix <- IBD.matrix[IBS.order,IBS.order]
+# merge IBS and IBD matrices
+matrices <- lowerUpper(IBD.matrix, IBS.matrix)
+
+#### make heatmap ####
+# color palette for heatmap
+col <- colorRampPalette(c("white", "#fb8500" ,"#d00000", "black"))(n = 199) 
+
+# make skewed color breaks for heatmap: (important!!! sum length must be 1 greater than value n from line above!! n=199 < sum(4 x length=50)==200)
+breaks = c(seq(0,0.3,length=50), seq(0.4,0.9,length=50), seq(0.91,0.98,length=50), seq(0.99,1,length=50)) 
+
+# make colors for color side bars in heatmap, showing all colors for vctypes 
+popinfo <- read.table("../data/SWISSpops_popinfo.txt", header = T, sep = "\t")
+colnames(matrices) <- popinfo$vctype[match(colnames(matrices), popinfo$Isolate)]
+barcols <-  brewer.pal(12, "Paired")
+names(barcols) <- levels(as.factor(colnames(matrices)))
+# plotting
+
+dir.create("plots")
+pdf("plots/Fig3C_IBS_IBD.sampling1.pdf")
+merged.heatmap <- heatmap.2(matrices,
+                            dendrogram='none', # don't use heatmap.2 dendrogram
+                            Rowv=FALSE, # don't cluster (because the heatmap is clustered according to the custom dendrogram)
+                            Colv=FALSE, # don't cluster
+                            trace='none',
+                            col =  col,
+                            breaks = breaks,
+                            ColSideColors=barcols[colnames(matrices)],
+                            RowSideColors=barcols[colnames(matrices)],
+                            density.info = "none",
+                            key.title = "",
+                            key.xlab = "IBS/IBD",
+                            key.ylab = "",
+                            labRow = "",
+                            labCol = "",
+                            key = T,
+                            keysize=0.75,
+                            key.par = list(cex=0.5),
+                            cexRow = 0.3,
+                            cexCol = 0.3)
+print(IBS.dendro.upper.plot, vp = viewport(x = 0.545, y = 0.9, width = 0.805, height = 0.1))
+print(IBS.dendro.left.plot, vp = viewport(x = 0.1, y = 0.449, width = 0.1, height = 0.805))
+legend(0.97,0.55, levels(as.factor(colnames(matrices))), col=barcols, pch=15, ncol = 1, cex=0.5)
+dev.off()
+```
+
+### Plot data for sampling 2 
+```{r plot IBS/IBD for Ticino2, message=FALSE, warning=FALSE}
+# transform df to matrices 
+IBS.matrix <- IBSdat %>% 
+  filter(sampling == "Ticino_sampling2") %>% 
+  reshape2::acast(sample1~sample2, value.var="IBS")
+IBD.matrix <- IBDdat %>% 
+  filter(sampling == "Ticino2") %>% 
+  rename(IBD = fract_vit_sites_IBD) %>%
+  graph.data.frame(directed = F) %>% 
+  get.adjacency(attr="IBD", sparse = F) 
+# Run clustering for dendrogram
+IBS.dendro <- as.dendrogram(hclust(d = dist(x = IBS.matrix)))
+# Create dendro
+IBS.dendro.upper.plot <- ggdendrogram(data = IBS.dendro, rotate = F, labels = T) +
+  theme(axis.line=element_blank(),
+      axis.text.x=element_text(size=3),
+      axis.text.y=element_blank(),
+      axis.ticks=element_blank(),
+      axis.title.x =element_blank(),
+      axis.title.y =element_blank(),
+      panel.background=element_blank(),
+      panel.border=element_blank(),
+      panel.grid.major=element_blank(),
+      panel.grid.minor=element_blank(),
+      plot.background=element_blank())
+IBS.dendro.left.plot <- ggdendrogram(data = IBS.dendro, rotate = T, labels = T) +
+  scale_x_reverse() +
+  scale_y_reverse() +
+  theme(axis.line=element_blank(),
+      axis.text.x=element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks=element_blank(),
+      axis.title.x =element_blank(),
+      axis.title.y =element_blank(),
+      panel.background=element_blank(),
+      panel.border=element_blank(),
+      panel.grid.major=element_blank(),
+      panel.grid.minor=element_blank(),
+      plot.background=element_blank())
+# get order of IBS dendrogram
+IBS.order <- order.dendrogram(IBS.dendro)
+# reorder IBS and IBD matrices according to IBS dendrogram order
+IBS.matrix <- IBS.matrix[IBS.order,IBS.order]
+IBD.matrix <- IBD.matrix[IBS.order,IBS.order]
+# merge IBS and IBD matrices
+matrices <- lowerUpper(IBD.matrix, IBS.matrix)
+#### make heatmap ####
+# color palette
+col <- colorRampPalette(c("white", "#fb8500" ,"#d00000", "black"))(n = 199) 
+# make skewed color breaks: (important!!! sum length must be 1 greater than value n from line above!! n=199 < sum(4 x length=50)==200)
+breaks = c(seq(0,0.5,length=50), seq(0.6,0.9,length=50), seq(0.91,0.98,length=50), seq(0.99,1,length=50)) 
+
+# make colors for vctypes (as color side bars)
+colnames(matrices) <- popinfo$vctype[match(colnames(matrices), popinfo$Isolate)]
+barcols <-  c(brewer.pal(12, "Paired"), "black") # here we need one color more than for sampling 1
+names(barcols) <- levels(as.factor(colnames(matrices)))
+# plotting
+pdf("plots/Fig3C_IBS_IBD.sampling2.pdf")
+merged.heatmap <- heatmap.2(matrices,
+                            dendrogram='none', # don't use heatmap.2 dendrogram
+                            Rowv=FALSE, # don't cluster (because the heatmap is clustered according to the custom dendrogram)
+                            Colv=FALSE, # don't cluster
+                            trace='none',
+                            col =  col,
+                            breaks = breaks,
+                            ColSideColors=barcols[colnames(matrices)],
+                            RowSideColors=barcols[colnames(matrices)],
+                            density.info = "none",
+                            key.title = "",
+                            key.xlab = "IBS/IBD",
+                            key.ylab = "",
+                            labRow = "",
+                            labCol = "",
+                            key = T,
+                            keysize=0.75,
+                            key.par = list(cex=0.5),
+                            cexRow = 0.3,
+                            cexCol = 0.3)
+print(IBS.dendro.upper.plot, vp = viewport(x = 0.545, y = 0.9, width = 0.805, height = 0.1))
+print(IBS.dendro.left.plot, vp = viewport(x = 0.1, y = 0.449, width = 0.1, height = 0.805))
+legend(0.97,0.55, levels(as.factor(colnames(matrices))), col=barcols, pch=15, ncol = 1, cex=0.5)
+dev.off()
+```
+
+
+### plot IBS/IBD histograms
+```{r plot IBS/IBD, warning=FALSE, message=FALSE}
+
+### IBS plotting
+ibshist<- IBSdat %>%
+ group_by(grp = paste(pmax(as.character(sample1), as.character(sample2)), pmin(as.character(sample1), as.character(sample2)), sep = "_")) %>%
+ slice(1) %>%
+ ungroup() %>%
+ select(-grp) %>% 
+  mutate(sample1 = ifelse(sample1==sample2, NA, as.character(sample1))) %>% 
+  na.omit()
+
+ggplot(ibshist, aes(x=IBS, fill=sampling)) + 
+  geom_histogram(position = 'identity', alpha=.7, show.legend = T) +
+    theme_classic() +
+  xlab("Identity by state (IBS)") +
+  scale_fill_manual(values = c("#4755A2", "#CF3C31"))
+
+ggsave("plots/SupplFig3_IBS.pdf", height = 5, width = 5)
+
+
+## IBD plotting
+ibdhist<- IBDdat %>%
+ group_by(grp = paste(pmax(as.character(sample1), as.character(sample2)), pmin(as.character(sample1), as.character(sample2)), sep = "_")) %>%
+ slice(1) %>%
+ ungroup() %>%
+ select(-grp) %>% 
+  mutate(sample1 = ifelse(sample1==sample2, NA, as.character(sample1))) %>% 
+  na.omit()
+
+ggplot(ibdhist, aes(x=fract_vit_sites_IBD, fill=sampling)) + 
+  geom_histogram(position = 'identity', alpha=.7, bins=20, show.legend = T) +
+  theme_classic() +
+  xlab("Identity by decent (IBD)") +
+  scale_fill_manual(values = c("#4755A2", "#CF3C31"))
+
+ggsave("plots/SupplFig3_IBD.pdf", height = 5, width = 5)
+```
+
