@@ -136,8 +136,8 @@ col <- colorRampPalette(c("white", "#fb8500" ,"#d00000", "black"))(n = 199)
 breaks = c(seq(0,0.3,length=50), seq(0.4,0.9,length=50), seq(0.91,0.98,length=50), seq(0.99,1,length=50)) 
 
 # make colors for color side bars in heatmap, showing all colors for vctypes 
-popinfo <- read.table("../data/SWISSpops_popinfo.txt", header = T, sep = "\t")
-colnames(matrices) <- popinfo$vctype[match(colnames(matrices), popinfo$Isolate)]
+popinfo <- read.table("../data/popinfo.txt", header = T, sep = "\t")
+colnames(matrices) <- popinfo$vctype[match(colnames(matrices), popinfo$Sample)]
 barcols <-  brewer.pal(12, "Paired")
 names(barcols) <- levels(as.factor(colnames(matrices)))
 # plotting
@@ -224,7 +224,7 @@ col <- colorRampPalette(c("white", "#fb8500" ,"#d00000", "black"))(n = 199)
 breaks = c(seq(0,0.5,length=50), seq(0.6,0.9,length=50), seq(0.91,0.98,length=50), seq(0.99,1,length=50)) 
 
 # make colors for vctypes (as color side bars)
-colnames(matrices) <- popinfo$vctype[match(colnames(matrices), popinfo$Isolate)]
+colnames(matrices) <- popinfo$vctype[match(colnames(matrices), popinfo$Sample)]
 barcols <-  c(brewer.pal(12, "Paired"), "black") # here we need one color more than for sampling 1
 names(barcols) <- levels(as.factor(colnames(matrices)))
 # plotting
