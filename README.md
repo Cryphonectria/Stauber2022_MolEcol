@@ -5,7 +5,7 @@
 * Install conda environment with ```conda env create -f environment.yml --name popgenomics```
 * Download SRA data to **00_rawdata**
 * Download files **Cryphonectria_parasiticav2.nuclearAssembly.unmasked** and **Cparasitica.mitochondria.fasta** from http://jgi.doe.gov/ to directory **01_REFgenome**
-* Run Snakemake pipeline on cluster with ```sbatch job_exec.sh```
+* Run Snakemake pipeline, e.g.: ```snakemake -c4```
 
 ```01_SNPassociations```: 
 * Analysis mating type and vic loci associated SNPs
