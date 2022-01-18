@@ -18,4 +18,4 @@
 * Calculate and plot allele frequencies and minor allele frequency (MAF) spectra of high, moderate and modifier impact mutations 
 
 ```04_IBS_IBD```:
-* Calculating and plotting identity-by-state (IBS) and identity-by-descent (IBD), heatmaps and histograms
+* Calculate and plot identity-by-state (IBS) and identity-by-descent (IBD), heatmaps and histograms
