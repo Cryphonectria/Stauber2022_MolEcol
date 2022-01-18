@@ -12,6 +12,7 @@
 
 ```02_popstructure```: 
 * Analysis of population structure - DAPC, AMOVA and PCA 
+* Site frequency spectra (SFS) calculations with dadi
 
 ```03_diversity_stats```: 
 * Make summary statistics (number of SNPs, percent singletons, SNP density, nucleotide diversity)
