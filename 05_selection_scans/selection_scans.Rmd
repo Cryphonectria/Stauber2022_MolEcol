@@ -1,0 +1,158 @@
+---
+title: "Selection scans"
+author: "Lea Stauber - Stauber et al. 2022, Mol. Ecol."
+date: "1/18/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+if (!requireNamespace("renv", quietly = TRUE))
+    install.packages("renv")
+
+## to restore R environment from renv.lock file run:
+# renv::restore()
+
+library(ggplot2)
+library(dplyr)
+library(varhandle)
+source("selection_scans_functions.R")
+```
+
+### Positive selection with RAiSD
+```{bash, include=F}
+## example how to get RAiSD report into R readable format
+grep "+" RAiSD_Report.ms_strong_bottleneck_new_run | awk '{print $2}' | tail -n +2 | sort -grk1,1 | head
+
+## split Ticino RAiSD report into multiple files
+gcsplit RAiSD_Report.Ticino_sampling2_run --suppress-matched --prefix=scaffold_ /\/\// {*}
+
+## add column with filename
+for i in scaffold*
+do 
+awk '{print FILENAME"\t"$0}' $i > $i.bk
+mv $i.bk $i
+done
+
+## remove empty files
+find . -size 0 -delete
+
+## concat files
+cat scaffold* > Ticino_sampling2.RAiSD.txt
+
+## remove individual files
+rm scaffold*
+```
+
+Get mu thresholds for simulated data sets (bottleneck, neutral, expansion)
+```{bash, include=FALSE}
+## example 
+grep "+" RAiSD_Report.ms_neutral_run | awk '{print $2}' | tail -n +2 | sort -grk1,1 | head
+
+## results:
+# 3.383e+01 > neutral
+# 6.950e+00 > strong bottleneck
+# 2.943e+01 > double expansion
+```
+
+Manhattan plot for positive selection signals
+```{r positive selection manhattan, message=FALSE, warning=FALSE}
+## import data
+ticino1 <- read.table("../data/Ticino_sampling1.RAiSD.txt", header = F, sep = "\t") %>% 
+  setNames(c("Chr", "Pos", "p")) %>% 
+  mutate(Chr = gsub("scaffold_0|scaffold_", "", Chr),
+         Chr = factor(Chr, levels=c(1:12), ordered = T),
+         Chr = unfactor(Chr))
+
+ticino2 <- read.table("../data/Ticino_sampling2.RAiSD.txt", header = F, sep = "\t") %>% 
+  setNames(c("Chr", "Pos", "p")) %>% 
+  mutate(Chr = gsub("scaffold_0|scaffold_", "", Chr),
+         Chr = factor(Chr, levels=c(1:12), ordered = T),
+         Chr = unfactor(Chr))
+
+##plot
+dir.create("plots")
+raisd_manhattan(ticino1, sampling = 1)
+ggsave("plots/Fig4A_ticino1.pdf", useDingbats=F)
+
+raisd_manhattan(ticino2, sampling = 2)
+ggsave("plots/Fig4A_ticino2.pdf", useDingbats=F)
+```
+
+
+### Balancing selection with betascan
+```{bash, include=FALSE}
+## run betascan on all scaffolds
+python BetaScan.py -i $files -o ${scaffold}.betascan.out -m 0.1 -theta 558 -p 20
+```
+
+```{r balancing selection scans manhattan, message=FALSE, warning=FALSE}
+## import data
+files <- list.files(pattern="*.betascan.txt", path = "../data")
+popnames <- gsub(".betascan.txt", "", files)
+
+betascan <- paste0("../data/", files) %>% 
+  lapply(., read.table, header = T, sep="\t", fill=T) %>% 
+  Map(cbind, ., sampling = popnames) %>% 
+  do.call(rbind.data.frame, .) %>% 
+  rename(Chr=scaffold_1,
+         Pos=Position,
+         p=Beta1) %>% 
+  mutate(Chr = gsub("scaffold_", "", Chr),
+         Chr = factor(Chr, levels=c(1:12), ordered = T),
+         Chr = unfactor(Chr),
+         Pos=as.integer(Pos),
+         p = as.numeric(p))
+
+
+## plot
+betascan_manhattan(betascan, sampling = 1)
+ggsave("plots/Fig4B_ticino1.pdf", useDingbats=F, height=3, width=3)
+
+
+betascan_manhattan(betascan, sampling = 2)
+ggsave("plots/Fig4B_ticino2.pdf", useDingbats=F, height=3, width=3)
+
+rm(list = ls())
+```
+
+### Tajima' D
+Calculate Tajima's D in 5kb window
+```{bash engine.opts='-l'}
+ticino1="../data/Ticino_sampling1.genotyped.SNP.filter.PASS.mac1.biallelic.DP.GQ.AD.removeMAT.recode.vcf"
+ticino2="../data/Ticino_sampling2.genotyped.SNP.filter.PASS.mac1.biallelic.DP.GQ.AD.removeMAT.recode.vcf"
+
+vcftools --haploid --vcf $ticino1 --TajimaD 5000 --out Ticino_sampling1
+vcftools --haploid --vcf $ticino2 --TajimaD 5000 --out Ticino_sampling2
+```
+
+
+```{r Tajimas D manhattan, message=FALSE, warning=FALSE}
+
+## import data
+files <- list.files(pattern=".Tajima.D")
+popnames <- gsub(".Tajima.D", "", files)
+
+tajima <- lapply(files, read.table, header = T, sep="\t", fill=T) %>% 
+  Map(cbind, ., sampling = popnames) %>% 
+  do.call(rbind.data.frame, .) %>% 
+  na.omit() %>% 
+  select(!N_SNPS) %>% 
+  rename(Chr="CHROM", Pos="BIN_START") %>% 
+  mutate(Chr=gsub("scaffold_", "", Chr),
+         Chr=gsub("mitochondria", "0", Chr),
+         Chr = factor(Chr, levels=c(0:12), ordered = T),
+         Chr = unfactor(Chr))
+
+## plot
+tajima_manhattan(tajima, sampling = 1)
+ggsave("plots/Fig4C_ticino1.pdf", useDingbats=F, height=3, width=3)
+
+tajima_manhattan(tajima, sampling = 2)
+ggsave("plots/Fig4C_ticino2.pdf", useDingbats=F, height=3, width=3)
+
+system("rm *Tajima.D")
+```
+
+
