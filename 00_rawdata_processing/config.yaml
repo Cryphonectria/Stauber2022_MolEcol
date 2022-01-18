@@ -1,0 +1,17 @@
+reads: ["R1", "R2"]
+
+ILLUMINACLIP: ILLUMINACLIP:TruSeq3-PE.fa:2:30:10 LEADING:10 TRAILING:10 SLIDINGWINDOW:4:15 MINLEN:50
+
+basename: Cp_global
+
+MAXALT: 2
+
+QUAL: 100
+QD: 20.0
+MQ: 20.0
+ReadPosRankSum_lower: -2.0
+ReadPosRankSum_upper: 2.0
+MQRankSum_lower: -2.0
+MQRankSum_upper: 2.0
+BaseQRankSum_lower: -2.0
+BaseQRankSum_upper: 2.0

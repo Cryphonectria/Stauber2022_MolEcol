@@ -1,0 +1,280 @@
+configfile: "config.yaml"
+
+with open('samples.txt') as f:
+    sampleID = f.read().splitlines()
+
+#rules --------------------------------------------------------
+rule all_output:
+    input:
+        "01_REFgenome/Cryphonectria_parasiticav2.fa",
+        "01_REFgenome/Cryphonectria_parasiticav2.dict",
+        "03_multiqc/multiqc_report.html",
+        expand("04_trimmedreads/{sample}.trim_{pair}.fastq.gz", sample=sampleID, pair=config["reads"]),
+        expand("05_bamfiles/{sample}.bam", sample=sampleID),
+        expand("06_gvcffiles/{sample}.g.vcf", sample=sampleID),
+        "06_gvcffiles/Cp_global.g.vcf.list",
+        "06_gvcffiles/Cp_global.combined.g.vcf",
+        "07_vcffiles/Cp_global.genotyped.vcf",
+        "07_vcffiles/Cp_global.genotyped.SNP.vcf",
+        "07_vcffiles/Cp_global.genotyped.SNP.filter.vcf",
+        "07_vcffiles/Cp_global.genotyped.SNP.filter.PASS.recode.vcf",
+        "07_vcffiles/Cp_global.genotyped.SNP.filter.PASS.mac1.biallelic.DP.GQ.AD.removeMAT.recode.vcf"
+
+rule FastQC:
+    input:
+        expand("00_rawdata/{sample}_{pair}.fastq.gz", sample=sampleID, pair=config["reads"])
+    output:
+        zip=expand("02_fastqc/{sample}_{pair}_fastqc.zip", sample=sampleID, pair=config["reads"]),
+        html=expand("02_fastqc/{sample}_{pair}_fastqc.html", sample=sampleID, pair=config["reads"])
+    threads: 4
+    shell:
+        """
+        fastqc -t {threads} {input} -o 02_fastqc
+        """
+
+rule MultiQC:
+    input:
+        html=rules.FastQC.output.html,
+        zip=rules.FastQC.output.zip
+    output:
+        "03_multiqc/multiqc_report.html"
+    shell:
+        """
+        multiqc 02_fastqc -o 03_multiqc
+        """
+
+
+rule merge_REFfasta:
+    input:
+        nuclear="01_REFgenome/Cryphonectria_parasiticav2.nuclearAssembly.unmasked",
+        mitochondria="01_REFgenome/Cparasitica.mitochondria.fasta"
+    output:
+        "01_REFgenome/Cryphonectria_parasiticav2.fa"
+    shell:
+        """
+        sed 's/mitochondria.fasta/mitochondria/' {input.mitochondria} > 01_REFgenome/Cparasitica.mitochondria.temp.fasta
+        cat {input.nuclear} 01_REFgenome/Cparasitica.mitochondria.temp.fasta > {output}
+        """
+
+rule Index_REFgenome:
+    input:
+        index=rules.merge_REFfasta.output
+    output:
+        "01_REFgenome/Cryphonectria_parasiticav2.dict"
+    shell:
+        """
+        bowtie2-build {input} 01_REFgenome/Cryphonectria_parasiticav2
+        samtools faidx {input}
+        picard CreateSequenceDictionary -R 01_REFgenome/Cryphonectria_parasiticav2.fa -O {output}
+        """
+
+rule trim_reads:
+    input:
+        R1="00_rawdata/{sample}_R1.fastq.gz",
+        R2="00_rawdata/{sample}_R2.fastq.gz"
+    threads: 1
+    params:
+        ILLUMINACLIP=config["ILLUMINACLIP"]
+    output:
+        R1trim="04_trimmedreads/{sample}.trim_R1.fastq.gz",
+        R2trim="04_trimmedreads/{sample}.trim_R2.fastq.gz",
+        R1trim_unp="04_trimmedreads/{sample}.unp_R1.fastq.gz",
+        R2trim_unp="04_trimmedreads/{sample}.unp_R2.fastq.gz"
+    shell:
+        """
+        trimmomatic PE -threads {threads} {input.R1} {input.R2} {output.R1trim} {output.R1trim_unp} {output.R2trim} {output.R2trim_unp} {params.ILLUMINACLIP}
+        """
+
+rule alignment:
+    input:
+        R1trim=rules.trim_reads.output.R1trim,
+        R2trim=rules.trim_reads.output.R2trim
+    threads: 2
+    resources:
+        mem_mb=2048
+    output:
+        temp("05_samfiles/{sample}.sam")
+    shell:
+        """
+        bowtie2 -p {threads} --very-sensitive-local --rg-id {wildcards.sample} --rg SM:{wildcards.sample} -x 01_REFgenome/Cryphonectria_parasiticav2 -1 {input.R1trim} -2 {input.R2trim} -S {output}
+        """
+
+rule sam2bam_sort_index:
+    input:
+        rules.alignment.output
+    resources:
+        mem_mb=2048
+    threads: 2
+    output:
+        "05_bamfiles/{sample}.bam"
+    shell:
+        """
+        samtools view -bS {input} | samtools sort - -o {output} -@ {threads} -T $TMPDIR
+        samtools index 05_bamfiles/{wildcards.sample}.bam
+        """
+
+rule HaplotypeCaller:
+    input:
+        bam=rules.sam2bam_sort_index.output,
+        REF=rules.merge_REFfasta.output
+    resources:
+        mem_mb=4000
+    params:
+        base=config["basename"]
+    output:
+        "06_gvcffiles/{sample}.g.vcf"
+    shell:
+        """
+        gatk HaplotypeCaller -R {input.REF} -ploidy 1 --emit-ref-confidence GVCF -I {input.bam} -O {output}
+        """
+
+rule list_gvcf:
+    input:
+        expand("06_gvcffiles/{sample}.g.vcf", sample=sampleID)
+    output:
+        "06_gvcffiles/Cp_global.g.vcf.list"
+    shell:
+        """
+        find 06_gvcffiles -name "*.g.vcf.idx" | sed 's/.idx//' > {output}
+        """
+
+rule CombineGVCFs:
+    input:
+        REF=rules.merge_REFfasta.output,
+        list=rules.list_gvcf.output
+    params:
+        base=config["basename"]
+    output:
+        "06_gvcffiles/Cp_global.combined.g.vcf"
+    shell:
+        """
+        gatk CombineGVCFs \
+        -R {input.REF} \
+        --variant {input.list} \
+        -O {output}
+        """
+
+rule GenotypeGVCFs:
+    input:
+        REF=rules.merge_REFfasta.output,
+        gvcf=rules.CombineGVCFs.output
+    params:
+        maxalt=config["MAXALT"]
+    resources:
+        mem_mb=16000
+    output:
+        "07_vcffiles/Cp_global.genotyped.vcf"
+    shell:
+        """
+        gatk --java-options -Xmx16g GenotypeGVCFs \
+        -R {input.REF} \
+        -V {input.gvcf} \
+        --max-alternate-alleles {params.maxalt} \
+        -O {output}
+        """
+
+rule SelectVariants:
+    input:
+        REF=rules.merge_REFfasta.output,
+        vcf=rules.GenotypeGVCFs.output
+    params:
+        maxalt=config["MAXALT"]
+    resources:
+        mem_mb=16000
+    output:
+        "07_vcffiles/Cp_global.genotyped.SNP.vcf"
+    shell:
+        """
+        gatk SelectVariants \
+        -R {input.REF} \
+        -V {input.vcf} \
+        --select-type-to-include SNP \
+        -O {output}
+        """
+
+rule VariantFiltration:
+    input:
+        REF=rules.merge_REFfasta.output,
+        vcf=rules.SelectVariants.output,
+    params:
+        QD=config["QD"],
+        QUAL=config["QUAL"],
+        MQ=config["MQ"],
+        ReadPosRankSum_lower=config["ReadPosRankSum_lower"],
+        ReadPosRankSum_upper=config["ReadPosRankSum_upper"],
+        MQRankSum_lower=config["MQRankSum_lower"],
+        MQRankSum_upper=config["MQRankSum_upper"],
+        BaseQRankSum_lower=config["BaseQRankSum_lower"],
+        BaseQRankSum_upper=config["BaseQRankSum_upper"]
+    resources:
+        mem_mb=16000
+    output:
+        "07_vcffiles/Cp_global.genotyped.SNP.filter.vcf"
+    shell:
+        """
+        gatk --java-options -Xmx16G VariantFiltration \
+        -R {input.REF} \
+        -V {input.vcf} \
+        --filter-expression "QD < {params.QD}" --filter-name "QDFilter" \
+        --filter-expression "QUAL < {params.QUAL}" --filter-name "QualFilter" \
+        --filter-expression "MQ < {params.MQ}" --filter-name "MQ" \
+        --filter-expression "ReadPosRankSum < {params.ReadPosRankSum_lower}" --filter-name "ReadPosRankSum" \
+        --filter-expression "ReadPosRankSum > {params.ReadPosRankSum_upper}" --filter-name "ReadPosRankSum" \
+        --filter-expression "MQRankSum < {params.MQRankSum_lower}" --filter-name "MQRankSum" \
+        --filter-expression "MQRankSum > {params.MQRankSum_upper}" --filter-name "MQRankSum" \
+        --filter-expression "BaseQRankSum < {params.BaseQRankSum_lower}" --filter-name "BaseQRankSum" \
+        --filter-expression "BaseQRankSum > {params.BaseQRankSum_upper}" --filter-name "BaseQRankSum" \
+        -O {output}
+        """
+
+rule SNPfiltering:
+    input:
+        rules.VariantFiltration.output
+    params:
+        base=config["basename"]
+    output:
+        "07_vcffiles/Cp_global.genotyped.SNP.filter.PASS.recode.vcf"
+    shell:
+        """
+        vcftools --vcf {input} --remove-filtered-all --recode --out 07_vcffiles/{params.base}.genotyped.SNP.filter.PASS
+        """
+
+rule hard_SNPfiltering_DP_GQ:
+    input:
+        rules.VariantFiltration.output
+    params:
+        base=config["basename"]
+    output:
+        temp("07_vcffiles/Cp_global.genotyped.SNP.filter.PASS.DP.GQ.recode.vcf")
+    shell:
+        """
+        vcftools --vcf {input} --mac 1 --minDP 3 --minGQ 99 --remove-filtered-all --recode --out 07_vcffiles/{params.base}.genotyped.SNP.filter.PASS.DP.GQ
+        """
+
+rule hard_SNPfiltering_DP_GQ_AD:
+    input:
+        rules.hard_SNPfiltering_DP_GQ.output
+    params:
+        base=config["basename"]
+    output:
+        temp("07_vcffiles/Cp_global.genotyped.SNP.filter.PASS.DP.GQ.AD.recode.vcf")
+    shell:
+        """
+        sed -E 's/.\/.:/.:/g' {input} | sed -E 's/:[0-9]*,0:/:PASS:/g' | sed -E 's/:0,[0-9]*:/:PASS:/g' | \
+        sed -E 's/:[0-9]*,[0-9]*:/:AD:/g' | sed -E 's/([0-9]*|.):AD:[0-9]*:[0-9]*:[0-9]*,[0-9]*/.:AD:.:.:.,./g' > {output}
+        """
+
+rule hard_SNPfiltering_MATrm:
+    input:
+        vcf=rules.hard_SNPfiltering_DP_GQ_AD.output,
+        MATinterval="EP155_MATrm.interval.txt"
+    params:
+        base=config["basename"]
+    output:
+        "07_vcffiles/Cp_global.genotyped.SNP.filter.PASS.mac1.biallelic.DP.GQ.AD.removeMAT.recode.vcf"
+    shell:
+        """
+        vcftools --vcf {input.vcf} --max-missing 1 --min-alleles 2 --max-alleles 2 --remove-filtered-all --recode \
+        --exclude-positions {input.MATinterval} \
+		--out 07_vcffiles/Cp_global.genotyped.SNP.filter.PASS.mac1.biallelic.DP.GQ.AD.removeMAT
+        """
