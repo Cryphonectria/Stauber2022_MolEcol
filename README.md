@@ -20,3 +20,8 @@
 
 ```04_IBS_IBD```:
 * Calculate and plot identity-by-state (IBS) and identity-by-descent (IBD), heatmaps and histograms
+
+```05_selection_scans```:
+* Genome-wide screen for positive selection with RAiSD on Ticino data sets and simulated data
+* Genome-wide screen for balancing selection with betascan
+* Genome-wide Tajima's D (5kb windows)
