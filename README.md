@@ -25,3 +25,7 @@
 * Genome-wide screen for positive selection with RAiSD on Ticino data sets and simulated data
 * Genome-wide screen for balancing selection with betascan
 * Genome-wide Tajima's D (5kb windows)
+
+```06_diversity_vic_MAT_CHV1```:
+* PERMANOVA
+* Mating type ratios and virus infection rates, vc type abundances, vic allele frequencies
