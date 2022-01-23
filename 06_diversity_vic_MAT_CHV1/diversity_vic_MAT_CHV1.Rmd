@@ -1,0 +1,249 @@
+---
+title: "Diversity, vc types, virus"
+author: "Lea Stauber - Stauber et al. 2022, Mol. Ecol."
+date: "1/19/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+packages <- c("BiocManager", "renv")
+if (!requireNamespace(packages, quietly = TRUE))
+    install.packages(packages)
+
+## to restore R environment from renv.lock file run:
+# renv::restore()
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(reshape2)
+library(tibble)
+library(SNPRelate)
+library(ggExtra)
+library(vegan)
+
+source("diversity_vic_MAT_CHV1_functions.R")
+```
+
+### Run PERMANOVA to assess contributions to genetic diversity
+```{r PERMANOVA, message=FALSE, warning=FALSE}
+vcf1 <- "../data/Ticino_sampling1.genotyped.SNP.filter.PASS.mac1.biallelic.DP.GQ.AD.removeMAT.recode.vcf"
+vcf2 <- "../data/Ticino_sampling2.genotyped.SNP.filter.PASS.mac1.biallelic.DP.GQ.AD.removeMAT.recode.vcf"
+popinfo <- read.table("../data/popinfo.txt", header = T, sep = "\t")
+
+## test for association of vc types, MAT, CHV1 infection, sampling sites with IBS
+
+## sampling1
+ticino1 <- permanova_analysis(vcf1, popinfo, sampling = 1)
+dir.create("output")
+write.table(ticino1$aov.tab, "output/Suppl.Table6_PERMANOVA_sampling1.txt", row.names = T, col.names = T, quote = F, sep = "\t")
+
+## sampling2
+ticino2 <- permanova_analysis(vcf2, popinfo, sampling = 2)
+write.table(ticino2$aov.tab, "output/Suppl.Table6_PERMANOVA_sampling2.txt", row.names = T, col.names = T, quote = F, sep = "\t")
+
+system("rm *gds")
+```
+  
+### Mating type ratios and virus infection rates in the Ticino populations
+
+perform fisher's exact test to test for changes in MAT-1/MAT-2 ratios across sampling years
+```{r MAT statistics, warning=FALSE, message=F}
+
+## perform fisher's exact test to test for changes in MAT-1/MAT-2 ratios across sampling years
+
+popinfo %>% 
+  filter(pop == "sampling1" | pop == "sampling2") %>% 
+  group_by(MAT, pop) %>% 
+  summarise(n=n()) %>% 
+  spread(MAT, n) %>% 
+  select(!`MAT-1+MAT-2`) %>% 
+  column_to_rownames("pop") %>% 
+  as.matrix() %>% 
+  fisher.test()
+```
+
+perform fisher's exact test to test for changes in MAT-1/MAT-2 ratios across dominant vc types and sampling years
+```{r MAT-vctype statistics, warning=FALSE, message=F}
+vctype <- c("EU-01", "EU-02", "EU-05")
+df <- data.frame(vc=rep(NA, length(vctype)))
+
+for (i in vctype) {
+    vctypes <- popinfo %>% 
+    filter(pop == "sampling1" | pop == "sampling2") %>% 
+    group_by(MAT, pop, vctype) %>% 
+    summarise(n=n()) %>% 
+    filter(vctype == i, MAT != "MAT-1+MAT-2") %>% 
+    spread(MAT, n) %>% 
+    select(!vctype) %>% 
+    column_to_rownames("pop") %>%
+    fisher.test()
+  
+  df[i,1] <- vctypes$p.value
+}
+
+## p-values for vc types
+df %>% rename(p.value=vc) %>% na.omit()
+
+```
+
+plot MAT and virus ratios
+```{r MAT-vctype-virus plotting, warning=FALSE, message=F}
+plotdat <- filter(popinfo, pop == "sampling1" | pop == "sampling2") %>% 
+  group_by(pop, vctype, MAT, Virus) %>% 
+  count(n=n())  %>%
+  select(!n) %>% 
+  mutate(pop = ifelse(pop == "sampling1", as.character("Sampling 1990s"), as.character("Sampling 2019")),
+         MAT = factor(MAT, levels = c("MAT-1", "MAT-2", "MAT-1+MAT-2"), ordered = T),
+         Virus = ifelse(Virus == "yes", as.character("virus-infected"), as.character("virus-free")))
+  
+ggplot(na.omit(plotdat), aes(x=vctype, y=MAT, size=nn, col=pop)) + 
+  geom_point() +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle=90, vjust = 0.5, hjust=1),
+        panel.border = element_rect(colour = "black", fill=NA, size=0.5),
+        panel.background = element_blank(),
+        legend.text = element_text(size=8),
+        legend.title = element_text(size=10),
+        axis.text = element_text(size=8),
+        axis.title = element_text(size=10),
+        strip.text.y = element_text(size = 10),
+        strip.background=element_rect(fill="grey70", colour = "grey70")) +
+  scale_size(range = c(2, 10), name="count") +
+   scale_y_discrete(limits = rev) +
+  scale_color_manual(values = c("#4755A2", "#CF3C31")) +
+  labs(x="vc type", y="mating type") +
+  facet_grid(pop~.) + guides(fill=FALSE, color=FALSE)
+
+
+dir.create("plots")
+ggsave("plots/Fig5A_Ticino.MAT_vctypes.pdf", useDingbats=F, height = 3, width = 6)
+
+ggplot(na.omit(plotdat), aes(x=vctype, y=MAT, size=nn, col=Virus, shape=Virus)) + 
+  geom_point(alpha=.8) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle=90, vjust = 0.5, hjust=1),
+        panel.border = element_rect(colour = "black", fill=NA, size=0.5),
+        panel.background = element_blank(),
+        legend.text = element_text(size=8),
+        legend.title = element_text(size=10),
+        axis.text = element_text(size=8),
+        axis.title = element_text(size=10),
+        strip.text.y = element_text(size = 10),
+        strip.background=element_rect(fill="grey70", colour = "grey70")) +
+  scale_size(range = c(2, 10), name="count") +
+   scale_y_discrete(limits = rev) +
+  scale_color_manual(values = c("#466365", "#D36135")) +
+  guides(color = guide_legend(override.aes = list(size=4))) +
+  labs(x="vc type", y="mating type") +
+  facet_grid(pop~.)
+
+ggsave("plots/Fig5B_Ticino.MAT_vctypes_virus.pdf", useDingbats=F, height = 3, width = 6)
+
+```
+
+calculate virus infection rates per sampling year
+```{r virus infection rates, warning=FALSE, message=FALSE}
+filter(popinfo, pop == "sampling1" | pop == "sampling2") %>% 
+  group_by(pop, Virus) %>% 
+  summarise(n=n()) %>% 
+  mutate(percent = (n/sum(n))*100) %>% 
+  filter(Virus == "yes")
+```
+
+```{r observed and potential vc types, message=FALSE, warning=FALSE}
+vicalleles <- read.table("../data/vic_loci.txt", header = T, sep = "\t") 
+
+popvctype <- filter(popinfo, pop == "sampling1" | pop == "sampling2") %>% 
+  select(Sample, pop, Region, vctype) %>% 
+  group_by(pop, Region, vctype) %>% 
+  summarise(n=n()) %>% 
+  mutate(vicloci = vicalleles$vicloci[match(vctype, vicalleles$vctype)]) %>% 
+  extract(vicloci, into = c("vic1", "vic2", "vic3", "vic4", "vic6", "vic7"), "(.{1})(.{1})(.{1})(.{1})(.{1})(.{1})") %>% 
+  group_by(pop, Region) %>% 
+  group_split()
+
+## rename list items
+names(popvctype) <- lapply(popvctype, function(x) {paste(unique(x$Region), unique(x$pop), sep = "_")})
+
+
+## count number of polymorphic vic loci per sampling and site
+polymorphic_vic <- lapply(popvctype, function(x) {polymorphic_vic_fct(x)}) %>% 
+  do.call(rbind, .) %>% 
+  data.frame() %>% 
+  rename(polymorphic_vicloci=".")
+
+observed_vctypes <- lapply(popvctype, function(x) {nrow(x)}) %>% 
+  do.call(rbind, .) %>% 
+  data.frame() %>% 
+  rename(observed_vctypes=".")
+
+
+## make summary data frame
+summary_df <- cbind(polymorphic_vic, observed_vctypes)
+summary_df$potential_vctypes <- 2^summary_df$polymorphic_vicloci
+
+
+```
+
+### Exact binomial test for vic alleles
+```{r exact binomial test, message=FALSE, warning=FALSE}
+
+## transfrom popinfo df to run exact binomial test:
+popinfo_long <- filter(popinfo, pop == "sampling1" | pop == "sampling2") %>% 
+  select(Sample, pop, Region, vctype) %>% 
+  mutate(vicloci = vicalleles$vicloci[match(vctype, vicalleles$vctype)]) %>% 
+  extract(vicloci, into = c("vic1", "vic2", "vic3", "vic4", "vic6", "vic7"), "(.{1})(.{1})(.{1})(.{1})(.{1})(.{1})") %>%
+  select(!Sample) %>% 
+  melt(c("pop", "Region", "vctype"), variable.name = "vic", value.name = "allele") %>% 
+  group_by(pop, vic, allele) %>% 
+ summarise(n = n()) %>%
+  mutate(freq = n / sum(n),
+         vicsum = ifelse(pop == "sampling1", 74, 68)) # n=74 | n=68 number of samples in 1990s | 2019 --> i.e sum(vic_allele1+2)
+
+## calculate exact binomial test for allele 1
+allele1 <- filter(popinfo_long, allele == 1)
+
+results <- apply(allele1, 1, function(x) {
+  model_binom <- binom.test( x = as.numeric(x[4]),
+                             n = as.numeric(x[6]), 
+                             p = 0.5, 
+                             alternative = "two.sided", 
+                             conf.level = 0.95)
+
+  return( c(pvalue = model_binom$p.value, 
+            CI95_low = model_binom$conf.int[1],
+            CI95_high = model_binom$conf.int[2]))
+})
+
+## make df for test results
+results_df <- do.call('cbind', list(allele1, data.frame(t(results))))
+results_df$pvalue <- round(results_df$pvalue, digits = 4) # round p-values
+results_df
+```
+
+Plot vic allele frequencies with CI
+```{r exact binomial test plot, message=FALSE, warning=FALSE}
+## plot allele frequencies of allele 1 with confidence intervals
+ggplot(results_df) + geom_point(aes(x=freq, y=vic, col=pop), size=6, show.legend = F, shape=18) +
+  theme_classic() +
+  geom_errorbar(aes(x=freq, y=vic, xmin = CI95_low, xmax = CI95_high), width = 0.5, size = 0.5, alpha=.5) +
+  facet_grid(pop~.) + geom_vline(xintercept = .5, col="grey", linetype="dotdash") +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.line = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, size=1),
+        axis.title.y = element_blank(), 
+        strip.background = element_blank(),
+        strip.text.y = element_text(face = "bold", size=10)) +
+  xlab("Frequency Allele 1") +
+  scale_color_manual(values = c("#4756A2", "#CF3C30"))
+
+## vic2 is the only vic locus where allele frequencies do not significantly deviate from 0.5
+```
+
+
+
