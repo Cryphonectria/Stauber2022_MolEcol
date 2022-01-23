@@ -29,3 +29,5 @@
 ```06_diversity_vic_MAT_CHV1```:
 * PERMANOVA
 * Mating type ratios and virus infection rates, vc type abundances, vic allele frequencies
+
+```data.tar.gz```: contains all input files for analyses 01--06
