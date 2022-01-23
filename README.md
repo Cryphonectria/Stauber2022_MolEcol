@@ -30,4 +30,4 @@
 * PERMANOVA
 * Mating type ratios and virus infection rates, vc type abundances, vic allele frequencies
 
-```data.tar.gz```: contains all input files for analyses 01--06
+```data.tar.gz```: contains all input files for analyses steps 1-6
