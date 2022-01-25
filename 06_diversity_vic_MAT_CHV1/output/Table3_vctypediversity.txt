@@ -1,0 +1,4 @@
+sampling1_polymorphic_vicloci	sampling1_observed_vctypes	sampling1_potential_vctypes	sampling2_polymorphic_vicloci	sampling2_observed_vctypes	sampling2_potential_vctypes	X	df	pval
+Gnosca	5	7	32	4	5	16	7.73333333333333	7	0.356694630933571
+Lumino	5	9	32	5	8	32	13.0961574074074	12	0.362090481310583
+Novaggio	4	6	16	5	8	32	12.1739949494949	9	0.203677118228308
