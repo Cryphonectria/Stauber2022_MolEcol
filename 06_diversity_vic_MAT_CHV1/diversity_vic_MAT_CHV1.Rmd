@@ -181,10 +181,42 @@ observed_vctypes <- lapply(popvctype, function(x) {nrow(x)}) %>%
   rename(observed_vctypes=".")
 
 
-## make summary data frame
-summary_df <- cbind(polymorphic_vic, observed_vctypes)
-summary_df$potential_vctypes <- 2^summary_df$polymorphic_vicloci
+### run chisq test for observed vc types
+sites <- c("Gnosca", "Lumino", "Novaggio")
+df <- data.frame(X=rep(NA, length(sites)), df=rep(NA, length(sites)), pval=rep(NA, length(sites))) ## make empty df
+row.names(df) <- sites
+  
+for (i in sites) {
+    popdf <- popinfo %>% 
+      filter(pop == "sampling1" | pop == "sampling2") %>% 
+      select(c(pop, Region, vctype)) %>% 
+      filter(Region == i) %>% 
+      select(!Region)
+    
+    test <- chisq.test(popdf$vctype, popdf$pop)
+    df[i,1] <- test$statistic
+    df[i,2] <- test$parameter
+    df[i,3] <- test$p.value
+  }
 
+
+## make summary data frame
+summary_df <- cbind(polymorphic_vic, observed_vctypes) %>% 
+  mutate(potential_vctypes = 2^polymorphic_vicloci) %>% 
+  rownames_to_column("sitesamp") %>% 
+  separate(sitesamp, c("site", "sampling"), sep = "_") %>% 
+  melt(id.vars=c("site", "sampling")) %>% 
+  mutate(sampvar = paste(sampling, variable, sep="_")) %>% 
+  select(site, sampvar, value) %>% 
+  spread(sampvar, value) %>% 
+  relocate(sampling1_polymorphic_vicloci, .before = sampling1_observed_vctypes) %>% 
+  relocate(sampling2_polymorphic_vicloci, .before = sampling2_observed_vctypes)
+
+summary_df <- cbind(summary_df, df) %>% 
+  select(!site) 
+summary_df
+
+write.table(summary_df, "output/Table3_vctypediversity.txt", row.names = T, col.names = T, sep = "\t", quote = F)
 
 ```
 
