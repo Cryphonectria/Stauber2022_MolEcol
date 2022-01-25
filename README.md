@@ -1,4 +1,6 @@
-# Stauber et al. 2022, Molecular Ecology - analysis pipeline
+# Analysis pipeline Stauber et al. 2022
+## Temporal changes in pathogen diversity in a perennial plant-pathogen-hyperparasite system
+
 
 ```00_rawdata_processing```:
 * OS=CentOS 7.8, Queuing System=Slurm
