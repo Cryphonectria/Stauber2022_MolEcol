@@ -1,5 +1,6 @@
 # Analysis pipeline 
 ## Stauber et al. 2022: Temporal changes in pathogen diversity in a perennial plant-pathogen-hyperparasite system
+## https://doi.org/10.1111/mec.16386
 
 
 ```00_rawdata_processing```:
